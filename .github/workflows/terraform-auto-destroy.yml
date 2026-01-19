@@ -1,0 +1,147 @@
+name: Terraform Auto Destroy
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # daily at 00:00 UTC
+  workflow_dispatch:
+
+env:
+  ROLE_ARN: "arn:aws:iam::XXXXXXXXXXXXXX:role/XXXXXXXXXXXXXXXXX"
+  AWS_REGION: "eu-west-2"
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write   # This is required for requesting the JWT
+
+jobs:
+  auto-destroy:
+    name: Auto Destroy - No Apply in Last 72 Hours
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - id: check_apply
+        name: Check last successful Terraform Apply
+        run: |
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          repo="$GITHUB_REPOSITORY"
+          resp=$(curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repo/actions/workflows/terraform-deploy.yml/runs?branch=main&status=completed&per_page=10")
+
+          # count runs safely
+          run_count=$(echo "$resp" | jq -r '.workflow_runs | length')
+          if [ "$run_count" -eq 0 ]; then
+            echo "No workflow runs found."
+            echo "should_destroy=no" >> $GITHUB_OUTPUT
+            echo "age_seconds=0" >> $GITHUB_OUTPUT
+            echo "age_minutes=0" >> $GITHUB_OUTPUT
+            echo "age_hours=0" >> $GITHUB_OUTPUT
+            echo "age_days=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          last_run=""
+          last_run_created_at=""
+
+          # iterate only existing indices
+          for i in $(seq 0 $((run_count - 1))); do
+            run_id=$(echo "$resp" | jq -r ".workflow_runs[$i].id")
+            run_created_at=$(echo "$resp" | jq -r ".workflow_runs[$i].created_at")
+            jobs_resp=$(curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo/actions/runs/$run_id/jobs")
+            apply_conclusion=$(echo "$jobs_resp" | jq -r '.jobs[]? | select(.name=="Terraform Apply") | .conclusion' | head -n1 || true)
+            if [ -n "$apply_conclusion" ] && [ "$apply_conclusion" = "success" ]; then
+              last_run="$run_id"
+              last_run_created_at="$run_created_at"
+              break
+            fi
+          done
+
+          if [ -z "$last_run" ]; then
+            echo "No successful Terraform Apply job found in recent runs."
+            echo "should_destroy=no" >> $GITHUB_OUTPUT
+            echo "age_seconds=0" >> $GITHUB_OUTPUT
+            echo "age_minutes=0" >> $GITHUB_OUTPUT
+            echo "age_hours=0" >> $GITHUB_OUTPUT
+            echo "age_days=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # convert RFC3339 time to epoch (seconds)
+          last_epoch=$(date -d "$last_run_created_at" +"%s")
+          now_epoch=$(date +"%s")
+          age_seconds=$((now_epoch - last_epoch))
+          age_minutes=$((age_seconds / 60))
+          age_hours=$((age_seconds / 3600))
+          age_days=$((age_seconds / 86400))
+
+          # build a human-readable composite string: "X days Y hours Z minutes"
+          days=$((age_seconds / 86400))
+          hours=$(( (age_seconds % 86400) / 3600 ))
+          minutes=$(( (age_seconds % 3600) / 60 ))
+          seconds=$(( age_seconds % 60 ))
+
+          components=()
+          [ "$days" -gt 0 ] && components+=("$days day(s)")
+          [ "$hours" -gt 0 ] && components+=("$hours hour(s)")
+          [ "$minutes" -gt 0 ] && components+=("$minutes minute(s)")
+          if [ ${#components[@]} -eq 0 ]; then
+            components+=("$seconds second(s)")
+          fi
+
+          n=${#components[@]}
+          if [ "$n" -gt 1 ]; then
+            last="${components[$((n-1))]}"
+            first="$(IFS=', '; echo "${components[@]:0:$((n-1))}")"
+            human="${first} and ${last}"
+          else
+            human="${components[0]}"
+          fi
+
+          echo "Last successful Terraform Apply job run ${last_run} was ${human} ago."
+          echo "age_seconds=${age_seconds}" >> $GITHUB_OUTPUT
+          echo "age_minutes=${age_minutes}" >> $GITHUB_OUTPUT
+          echo "age_hours=${age_hours}" >> $GITHUB_OUTPUT
+          echo "age_days=${age_days}" >> $GITHUB_OUTPUT
+          # decision threshold: 72 hours = 259200 seconds
+          if [ "$age_seconds" -lt 259200 ]; then
+            echo "should_destroy=no" >> $GITHUB_OUTPUT
+          else
+            echo "should_destroy=yes" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Configure AWS Credentials
+        if: steps.check_apply.outputs.should_destroy == 'yes'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          role-session-name: github-actions-tf-destroy-session
+          role-duration-seconds: 1800
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        if: steps.check_apply.outputs.should_destroy == 'yes'
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: 1.11.3
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        if: steps.check_apply.outputs.should_destroy == 'yes'
+        run: |
+          terraform init -reconfigure
+
+      - name: Terraform Destroy
+        if: steps.check_apply.outputs.should_destroy == 'yes'
+        run: |
+          terraform destroy -auto-approve
