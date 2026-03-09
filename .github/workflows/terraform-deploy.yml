@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  ROLE_ARN: "arn:aws:iam::XXXXXXXXXXXXXX:role/XXXXXXXXXXXXXXXXX"
   AWS_REGION: "eu-west-2"
 # permission can be added at job level or workflow level
 permissions:
