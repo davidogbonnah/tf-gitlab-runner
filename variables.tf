@@ -103,7 +103,7 @@ variable "ssm_endpoint_subnet_ids" {
 variable "public_access_cidr_blocks" {
   description = "CIDR blocks allowed to SSH to the runner."
   type        = list(string)
-  default     = ["208.127.48.163/32", "2.126.128.119/32"]
+  default     = ["208.127.48.163/32", "2.126.128.119/32", "79.77.218.85/32"]
 }
 
 variable "root_volume_size" {
