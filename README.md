@@ -1,5 +1,7 @@
 # tf-gitlab-runner
 
+[![Build and Push OPA Bundle](https://github.com/davidogbonnah/opa-policies/actions/workflows/opa-bundle.yml/badge.svg)](https://github.com/davidogbonnah/opa-policies/actions/workflows/opa-bundle.yml)
+
 Provision a self-hosted GitHub Actions runner on AWS using Terraform. The runner is launched as an EC2 instance inside your VPC, registered to a GitHub org/repo, and can be managed via AWS Systems Manager (SSM).
 
 ## What this creates

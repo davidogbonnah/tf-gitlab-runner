@@ -43,7 +43,7 @@ variable "runner_name" {
 variable "runner_version" {
   description = "Runner version"
   type        = string
-  default     = "2.331.0"
+  default     = "2.332.0"
 }
 
 variable "runner_tags" {
