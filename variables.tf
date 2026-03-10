@@ -19,7 +19,7 @@ variable "github_url" {
 variable "github_org" {
   description = "Github organization name."
   type        = string
-  default     = "dogb-capco"
+  default     = "davidogbonnah"
 }
 
 variable "github_repo" {
