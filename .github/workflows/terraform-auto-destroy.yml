@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  ROLE_ARN: "arn:aws:iam::XXXXXXXXXXXXXX:role/XXXXXXXXXXXXXXXXX"
+  ROLE_ARN: "arn:aws:iam::258449970910:role/DCOProTerraformOperator"
   AWS_REGION: "eu-west-2"
 
 permissions:
