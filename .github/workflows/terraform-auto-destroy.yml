@@ -144,4 +144,4 @@ jobs:
       - name: Terraform Destroy
         if: steps.check_apply.outputs.should_destroy == 'yes'
         run: |
-          terraform destroy -auto-approve
+          terraform destroy -var 'registration_token=${{ secrets.RUNNER_TOKEN }}' -auto-approve
